@@ -1,19 +1,17 @@
 # -*- coding: utf-8 -*-
 
 import os
-import re
 import subprocess
-import sys
-import math
 
 from django.conf import settings
-from paperless.documents.parsers import DocumentParser, ParseError
+from documents.parsers import DocumentParser, ParseError
 
 
 class TextDocumentParser(DocumentParser):
     """
-    This parser uses Tesseract to try and get some text out of a rasterised
-    image, whether it's a PDF, or other graphical format (JPEG, TIFF, etc.)
+    This parser simply reads the file to get the text contents.
+
+    It will handle files ending with .txt extension, or guess if
     """
 
     CONVERT = settings.CONVERT_BINARY
@@ -22,22 +20,46 @@ class TextDocumentParser(DocumentParser):
     UNPAPER = settings.UNPAPER_BINARY
     DEFAULT_OCR_LANGUAGE = settings.OCR_LANGUAGE
 
+    def __init__(self):
+        super().__init__(self)
+        self._text = None
+
     def get_thumbnail(self):
         """
         The thumbnail of a PDF is just a 500px wide image of the first page.
         """
 
+        if self._text is None:
+            self._text = self.get_text()
+
+        # Text needs to be escaped depending on how the graphic primitive
+        # is built. More info at https://www.imagemagick.org/Usage/draw/#text
+        escaped_text = self._text.replace(
+            "\\", "\\\\\\\\"  # replace one backslash by four backslashes
+        ).replace("'", "\\\\'")  # prepend two backlashes to single-quotes
+
+        x_offset, y_offset = 5, 15
+        graphic_primitive = "text {x},{y} '{text}'".format(
+            x=x_offset, y=y_offset, text=escaped_text)
+
         run_convert(
             self.CONVERT,
-            "-scale", "500x5000",
-            "-alpha", "remove",
-            self.document_path, os.path.join(self.tempdir, "convert-%04d.png")
+            "xc:white",
+            "-size", "500x500",
+            "-pointsize", "12",
+            "-draw", graphic_primitive,
+            os.path.join(self.tempdir, "convert-%04d.png")
         )
 
         return os.path.join(self.tempdir, "convert-0000.png")
 
     def get_text(self):
-        pass  # TODO: return file contents
+        if self._text is None:
+            with open(self.document_path) as stream:
+                self._text = stream.read()
+        return self._text
+
+    # TODO: def get_date(self): ...
 
 
 def run_convert(*args):
@@ -49,48 +71,3 @@ def run_convert(*args):
         environment["MAGICK_TMPDIR"] = settings.CONVERT_TMPDIR
 
     subprocess.Popen(args, env=environment).wait()
-
-
-def strip_excess_whitespace(text):
-    collapsed_spaces = re.sub(r"([^\S\r\n]+)", " ", text)
-    no_leading_whitespace = re.sub(
-        "([\n\r]+)([^\S\n\r]+)", '\\1', collapsed_spaces)
-    no_trailing_whitespace = re.sub("([^\S\n\r]+)$", '', no_leading_whitespace)
-    return no_trailing_whitespace
-
-
-temp_dir = os.environ["HOME"]+"/"+".temp_iconlayers"
-if not os.path.exists(temp_dir):
-    os.mkdir(temp_dir)
-
-temp_bg = temp_dir+"/"+"bg.png"; temp_txlayer = temp_dir+"/"+"tx.png"
-picsize = ("x").join([str(n) for n in psize]); txsize = ("x").join([str(n-8) for n in psize])
-
-
-def create_bg(bg_color='#DCDCDC', text_color='black', psize=[64, 64], n_lines=4, n_chars=9, output_file='/path/to/output/icon.png'):
-    work_size = ",".join([str(_ - 1) for _ in psize])
-    r = str(round(psize[0]/10))
-    rounded = ','.join([r, r])
-    command = 'convert -size %s xc:none -draw ' \
-              '"fill %s roundrectangle 0,0,%s,%s" %s' % (
-                picsize, bg_color, work_size, rounded, temp_bg)
-    subprocess.call(["/bin/bash", "-c", command])
-
-
-def read_text():
-    with open(sys.argv[1]) as src:
-        lines = [l.strip() for l in src.readlines()]
-        return ("\n").join([l[:n_chars] for l in lines[:n_lines]])
-
-
-def create_txlayer():
-    subprocess.call(["/bin/bash", "-c", "convert -background none -fill "+text_color+\
-                      " -border 4 -bordercolor none -size "+txsize+" caption:"+'"'+read_text()+'" '+temp_txlayer])
-
-
-def combine_layers():
-    create_txlayer(); create_bg()
-    command = "convert "+temp_bg+" "+temp_txlayer+" -background None -layers merge "+output_file
-    subprocess.call(["/bin/bash", "-c", command])
-
-combine_layers
