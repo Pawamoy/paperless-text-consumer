@@ -9,29 +9,28 @@ class ConsumerDeclaration:
 
     @classmethod
     def handle(cls, sender, **kwargs):
-        print('handling')
         return cls.test
 
     @classmethod
     def test(cls, doc):
 
-        print('testing')
+        # FIXME: this algorithm can surely be improved.
+        # Also the weight should be balanced with other consumers'
+        # and the defaults paperless consumers' weights.
         splits = doc.lower().split('.')
-        extension = splits[-1]
-
-        if len(splits) <= 1:  # no extension, normal weight
-            weight = 0
-
-        elif extension == 'txt':  # txt extension, more weight
-            weight = 1
-
-        elif cls.is_text_file(doc):  # guessed with first ko, less weight
-            weight = -1
-
+        if len(splits) > 1:
+            extension = splits[-1]
+            if extension == 'txt':
+                weight = 10  # txt extension, high weight
+            elif cls.is_text_file(doc):
+                weight = 0  # unknown extension but text file, low weight
+            else:
+                return None
+        elif cls.is_text_file(doc):
+            weight = 5  # no extension and text file, medium weight
         else:  # considered binary file, do not handle
             return None
 
-        print('weight = %s ' % weight)
         return {
             'parser': TextDocumentParser,
             'weight': weight
