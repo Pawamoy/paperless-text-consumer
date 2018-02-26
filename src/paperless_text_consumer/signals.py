@@ -23,8 +23,8 @@ class ConsumerDeclaration:
             if extension == 'txt':
                 weight = 10  # txt extension, high weight
             elif cls.is_text_file(doc):
-                weight = 0  # unknown extension but text file, low weight
-            else:
+                weight = -1  # unknown extension but text file, low weight
+            else:  # considered binary file, do not handle
                 return None
         elif cls.is_text_file(doc):
             weight = 5  # no extension and text file, medium weight
